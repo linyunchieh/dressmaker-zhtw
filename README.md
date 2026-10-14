@@ -9,7 +9,7 @@
 
 ## 安裝
 
-1. 到 [Releases → 安裝程式](../../releases/tag/launcher) 下載 `Dressmaker繁體中文化補丁.exe`
+1. 到 [Releases → 安裝程式](../../releases/tag/launcher) 下載 `Dressmaker-zhTW-Setup.exe`
 2. 先關閉遊戲，再執行安裝程式（會自動找到 Steam 的遊戲資料夾），然後按「安裝繁體中文」
 3. 進遊戲後在「選項 → 語言」選「繁體中文」
 
