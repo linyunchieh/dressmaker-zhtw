@@ -1,0 +1,15 @@
+# 遊戲原檔與建置產物一律不進版控
+*.bin
+*.assets
+*.bundle
+*.dll
+*.resS
+*.exe
+*.zip
+*.lit.xz
+build/
+dist*/
+work/
+.venv/
+__pycache__/
+untranslated.json
