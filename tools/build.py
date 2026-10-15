@@ -323,7 +323,8 @@ def main():
     files = []
     for rel in ORDER:
         print(DELTA_NAME[rel] + ':')
-        if rel in PREVE and sha(orig(rel)) == PREVE[rel]['old_sha256']:
+        # 字串表一律重做：strings.json 改了但遊戲沒更新時，也要套進新譯文
+        if rel != STR_BUNDLE and rel in PREVE and sha(orig(rel)) == PREVE[rel]['old_sha256']:
             files.append(reuse(rel))
         elif rel in BUILDERS:
             files.append(BUILDERS[rel]())
