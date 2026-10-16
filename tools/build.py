@@ -5,8 +5,9 @@ usage: build.py <orig game dir> <prev payload dir> <TC font source resources.ass
 
 <orig game dir> 必須是新版遊戲的「未修改」檔案（Dressmaker_Data/...，含 Managed/ 與 globalgamemanagers.assets）。
 每個檔案：原檔與上一版 manifest 的 old_sha256 相同 -> 沿用上一版成品；不同 -> 從新版原檔重做：
-- 字串表：translations/strings.json（{表: {m_Id: {sc, tc}}}）。簡中原文 sc 對不上或缺條目時，
-  會寫出 <out>/../untranslated.json 並中止；補好 strings.json 再跑一次。
+- 字串表：translations/strings.json（{表: {m_Id: {sc_sha, tc}}}；sc_sha＝簡中原文 UTF-8 的 SHA-256 前 16 碼，
+  repo 不存原文）。原文雜湊對不上或缺條目時，會寫出 <out>/../untranslated.json（含原文與新的 sc_sha）並中止；
+  把 sc_sha 與譯文補進 strings.json 再跑一次。
 - catalog：三個 bundle 的 CRC 歸零（位置用新版原檔大小重新找）
 - Assembly-CSharp.dll：LanguageSelectorPopup.NativeName 的 brtrue.s 7 -> pop; nop（用 IL 樣式重新定位）
 - resources.assets：思源 SC Font 換成 TC 字型資料（依名稱找物件）
@@ -59,6 +60,11 @@ def sha(p_or_b):
         for b in iter(lambda: f.read(1 << 23), b''):
             h.update(b)
     return h.hexdigest()
+
+
+def sha16(s):
+    """簡中原文的指紋：strings.json 只存這個，用來偵測遊戲更新後原文有沒有改。"""
+    return hashlib.sha256(s.encode('utf-8')).hexdigest()[:16]
 
 
 def load(path):
@@ -199,9 +205,10 @@ def build_strings():
         t = tr.get(d['m_Name'], {})
         for e in d['m_TableData']:
             x = t.get(str(e['m_Id']))
-            if x is None or x['sc'] != e['m_Localized']:
+            h = sha16(e['m_Localized'])
+            if x is None or x['sc_sha'] != h:
                 missing.append({'table': d['m_Name'], 'id': str(e['m_Id']), 'sc': e['m_Localized'],
-                                'old_sc': x and x['sc'], 'old_tc': x and x['tc']})
+                                'sc_sha': h, 'old_tc': x and x['tc']})
                 continue
             e['m_Localized'] = x['tc']
             n += 1
