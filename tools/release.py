@@ -14,14 +14,16 @@ with zipfile.ZipFile(out, 'w', zipfile.ZIP_STORED) as z:   # lit.xz 已壓縮
     for f in sorted(os.listdir(PAYLOAD)):
         z.write(os.path.join(PAYLOAD, f), f)
 data = open(out, 'rb').read()
-print(name, len(data), 'bytes')
+h = hashlib.sha256(data).hexdigest()
+print(name, len(data), 'bytes, sha256', h)
 subprocess.run(['gh', 'release', 'create', f'v{ver}', out, '-R', REPO, '-t', f'補丁資料 {ver}（buildid {bid}）',
-                '-n', f'線上安裝程式使用的補丁資料，適用 Steam buildid {bid}。玩家請下載 launcher release 的安裝程式。'],
+                '-n', f'線上安裝程式使用的補丁資料，適用 Steam buildid {bid}。玩家請下載 launcher release 的安裝程式。\n\n'
+                      f'**SHA-256**\n`{name}`：`{h}`'],
                check=True)
 ip = os.path.join(ROOT, 'index.json')
 idx = json.load(open(ip, encoding='utf-8')) if os.path.exists(ip) else {'min_launcher': 1, 'versions': []}
 idx['versions'] = [v for v in idx['versions'] if v['buildid'] != bid] + [{
-    'version': ver, 'buildid': bid, 'size': len(data), 'sha256': hashlib.sha256(data).hexdigest(),
+    'version': ver, 'buildid': bid, 'size': len(data), 'sha256': h,
     'url': f'https://github.com/{REPO}/releases/download/v{ver}/{name}'}]
 idx['latest'] = ver
 json.dump(idx, open(ip, 'w', encoding='utf-8'), indent=1, ensure_ascii=False)
