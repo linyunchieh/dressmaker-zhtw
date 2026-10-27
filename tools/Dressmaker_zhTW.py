@@ -3,14 +3,14 @@
 安裝程式本身固定不變；執行時依遊戲的 Steam buildid 從 GitHub 下載對應的補丁資料（只含差分，不含遊戲原檔）。
 測試／離線：--payload <dir> 直接用本機 payload；--cli install|restore <game dir> 不開視窗。
 """
-import os, sys, json, hashlib, shutil, lzma, re, subprocess, threading, tempfile, urllib.request, zipfile, winreg
+import os, sys, json, hashlib, shutil, lzma, re, ssl, subprocess, threading, tempfile, urllib.request, zipfile, winreg
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import unityfs
 
 APP_ID = '4019220'
-LAUNCHER_VERSION = 1
+LAUNCHER_VERSION = 2
 REPO = 'linyunchieh/dressmaker-zhtw'
 INDEX_URL = f'https://raw.githubusercontent.com/{REPO}/main/index.json'
 PAGE_URL = f'https://github.com/{REPO}'
@@ -69,9 +69,65 @@ def game_running():
 
 
 # ---------------------------------------------------------------- 下載補丁資料
+UA = 'Dressmaker-zhTW-launcher'
+
+
+def _ssl_contexts():
+    """依序回傳要嘗試的 SSL 設定。Python 內建的只認 Windows 存放區裡「已經有」的根憑證，
+    Windows 卻是瀏覽器用到才補，防毒的 HTTPS 掃描也常讓它驗不過，所以先改用 Windows 自己的驗證。"""
+    try:
+        import truststore
+        yield truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    except Exception:
+        pass
+    ctx = ssl.create_default_context()
+    try:
+        import certifi
+        ctx.load_verify_locations(certifi.where())
+    except Exception:
+        pass
+    yield ctx
+
+
+def _is_cert_error(ex):
+    return isinstance(getattr(ex, 'reason', ex), ssl.SSLError)
+
+
+def _curl_get(url):
+    """最後手段：Windows 10 內建的 curl.exe（走系統的 Schannel，與瀏覽器同一套憑證驗證）。"""
+    curl = os.path.join(os.environ.get('SystemRoot', r'C:\Windows'), 'System32', 'curl.exe')
+    fd, tmp = tempfile.mkstemp(prefix='dressmaker_zhtw_')
+    os.close(fd)
+    try:
+        p = subprocess.run([curl, '-fsSL', '--retry', '2', '-A', UA, '-o', tmp, url],
+                           capture_output=True, text=True, creationflags=0x08000000)
+        if p.returncode:
+            raise RuntimeError('curl: ' + (p.stderr.strip() or 'exit %d' % p.returncode))
+        return open(tmp, 'rb').read()
+    finally:
+        os.remove(tmp)
+
+
 def http_get(url, log=None, label=''):
-    req = urllib.request.Request(url, headers={'User-Agent': 'Dressmaker-zhTW-launcher'})
-    with urllib.request.urlopen(req, timeout=60) as r:
+    err = None
+    for ctx in _ssl_contexts():
+        try:
+            return _http_get(url, ctx, log, label)
+        except Exception as ex:
+            if not _is_cert_error(ex):
+                raise
+            err = ex
+    if log:
+        log('%s：改用系統 curl 下載…' % (label or '取得補丁版本清單'))
+    try:
+        return _curl_get(url)
+    except Exception:
+        raise err
+
+
+def _http_get(url, ctx, log, label):
+    req = urllib.request.Request(url, headers={'User-Agent': UA})
+    with urllib.request.urlopen(req, timeout=60, context=ctx) as r:
         total = int(r.headers.get('Content-Length') or 0)
         buf = bytearray()
         while True:
@@ -79,18 +135,22 @@ def http_get(url, log=None, label=''):
             if not b:
                 break
             buf += b
-            if log and total:
+            if log and label and total:
                 log('%s %d%%（%.1f / %.1f MB）' % (label, len(buf) * 100 // total, len(buf) / 1e6, total / 1e6))
     return bytes(buf)
+
+
+NET_ERR = ('無法連線到 GitHub 取得補丁資料。\n'
+           '若有防毒軟體的 HTTPS／網頁掃描功能，請暫時關閉後再試。\n\n')
 
 
 def fetch_payload(game, log):
     """依 buildid 從 GitHub 下載並解壓補丁資料，回傳 payload 目錄。"""
     log('取得補丁版本清單…')
     try:
-        idx = json.loads(http_get(INDEX_URL))
+        idx = json.loads(http_get(INDEX_URL, log))
     except Exception as ex:
-        raise RuntimeError('無法連線到 GitHub 取得補丁資料：\n' + str(ex))
+        raise RuntimeError(NET_ERR + str(ex))
     if idx.get('min_launcher', 1) > LAUNCHER_VERSION:
         raise RuntimeError('這個安裝程式版本太舊，請到以下網址下載新版安裝程式：\n' + PAGE_URL)
     bid = game_buildid(game)
@@ -103,7 +163,10 @@ def fetch_payload(game, log):
         v = hit[0]
     else:   # 找不到 Steam 資訊：用最新版，檔案版本由雜湊檢查把關
         v = next(v for v in vers if v['version'] == idx['latest'])
-    data = http_get(v['url'], log, f'下載補丁 {v["version"]}')
+    try:
+        data = http_get(v['url'], log, f'下載補丁 {v["version"]}')
+    except Exception as ex:
+        raise RuntimeError(NET_ERR + str(ex))
     if hashlib.sha256(data).hexdigest() != v['sha256']:
         raise RuntimeError('下載的補丁資料損毀（雜湊不符），請再試一次。')
     d = tempfile.mkdtemp(prefix='dressmaker_zhtw_')
