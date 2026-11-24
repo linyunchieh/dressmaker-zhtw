@@ -21,7 +21,14 @@
    "size": 27216542,
    "sha256": "7e8f306d3cb4a669bc9fc1a12caaf9638d68f388662406591be6ed6aad58e0cc",
    "url": "https://github.com/linyunchieh/dressmaker-zhtw/releases/download/v2.3.6/dressmaker-zhtw-payload-2.3.6.zip"
+  },
+  {
+   "version": "2.3.7",
+   "buildid": "26869276",
+   "size": 27216744,
+   "sha256": "34c47990de2ca57dd7839f90c6de7987ec39b94342a2637a2760de4cc6550393",
+   "url": "https://github.com/linyunchieh/dressmaker-zhtw/releases/download/v2.3.7/dressmaker-zhtw-payload-2.3.7.zip"
   }
  ],
- "latest": "2.3.6"
+ "latest": "2.3.7"
 }

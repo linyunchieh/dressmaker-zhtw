@@ -55,6 +55,8 @@ python tools/Dressmaker_zhTW.py --cli install "<遊戲資料夾>"
 1. 準備一份新版遊戲的**未修改**檔案（Steam 驗證完整性後複製 `Dressmaker_Data`，或拿 `_zhTW_backup` 裡的原檔來補）
 2. `python tools/build.py <原檔dir> <上一版 payload> <TC 字型來源 resources.assets> <out> --version X.Y.Z --buildid N`
    - 原檔沒變的項目會直接沿用上一版
+   - 圖片 bundle 的原檔被更新改動時，加 `--imgsrc <任一版已套補丁的圖片 bundle>`（取繁中貼圖）
+   - Unity 版本從遊戲的 `globalgamemanagers` 自動讀取
    - 字串有新增或改動時，會寫出 `untranslated.json` 並停止；把其中的 `sc_sha` 和譯文補進 `translations/strings.json` 後再跑一次
 3. 用 `--payload <out> --cli install <遊戲dir>` 在本機測試，再進遊戲確認
 4. `python tools/release.py <out> <owner/repo>`，然後 commit 並 push `index.json`

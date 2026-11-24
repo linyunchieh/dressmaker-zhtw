@@ -1,7 +1,7 @@
 """Build the Dressmaker zh-TW patch payload (delta-only; contains no original game files).
 
 usage: build.py <orig game dir> <prev payload dir> <TC font source resources.assets> <out payload dir>
-                --version X.Y.Z --buildid N
+                --version X.Y.Z --buildid N [--imgsrc <已套補丁的圖片 bundle>]
 
 <orig game dir> 必須是新版遊戲的「未修改」檔案（Dressmaker_Data/...，含 Managed/ 與 globalgamemanagers.assets）。
 每個檔案：原檔與上一版 manifest 的 old_sha256 相同 -> 沿用上一版成品；不同 -> 從新版原檔重做：
@@ -12,7 +12,9 @@ usage: build.py <orig game dir> <prev payload dir> <TC font source resources.ass
 - Assembly-CSharp.dll：LanguageSelectorPopup.NativeName 的 brtrue.s 7 -> pop; nop（用 IL 樣式重新定位）
 - resources.assets：思源 SC Font 換成 TC 字型資料（依名稱找物件）
 - sharedassets2.assets：素描本需求條標籤 overflowMode 1 -> 0（依 m_text／字級找物件）
-- locales、圖片 bundle：目前沒有重做程式，原檔變了就中止（屆時再補）
+- locales：日文／英文／簡中 locale 的 m_LocaleName 改成 日本語／English／繁體中文（依 m_Code 找）
+- 圖片 bundle：三張貼圖（報紙、傳單、Logo）的資料從 --imgsrc（任一版已套補丁的圖片 bundle）
+  內嵌進新版原檔，存成不壓縮；需要 --imgsrc 只在原檔被更新改動時
 輸出全部是 delta：['C', 原檔位移, 長度] 從原檔照搬，['L', 長度] 從 .lit.xz 取。
 """
 import argparse, hashlib, json, lzma, os, re, shutil, struct, sys
@@ -26,6 +28,7 @@ ap.add_argument('fontsrc')
 ap.add_argument('out')
 ap.add_argument('--version', required=True)
 ap.add_argument('--buildid', required=True)
+ap.add_argument('--imgsrc', help='已套補丁的圖片 bundle（取繁中貼圖用）')
 A = ap.parse_args()
 NEW, PREV, OUT = A.orig, A.prev, A.out
 DATA = os.path.join(NEW, 'Dressmaker_Data')
@@ -304,7 +307,65 @@ def build_sharedassets2():
     return delta_from_bytes(SA2, bytes(ref))
 
 
-BUILDERS = {STR_BUNDLE: build_strings, CATALOG: build_catalog, DLL: build_dll,
+# ---------------------------------------------------------------- locales（語言選單名稱）
+LOCALE_NAMES = {'ja': '日本語', 'en': 'English', 'zh-Hans': '繁體中文'}
+
+
+def build_locales():
+    env = load(orig(LOC_BUNDLE))
+    done = set()
+    for o in env.objects:
+        if o.type.name != 'MonoBehaviour':
+            continue
+        t = o.read_typetree()
+        code = (t.get('m_Identifier') or {}).get('m_Code')
+        if code in LOCALE_NAMES:
+            t['m_LocaleName'] = LOCALE_NAMES[code]
+            o.save_typetree(t)
+            done.add(code)
+    assert done == set(LOCALE_NAMES), done
+    print('  locales:', ', '.join('%s=%s' % kv for kv in LOCALE_NAMES.items()))
+    return delta_from_bytes(LOC_BUNDLE, env.file.save(packer='original'))
+
+
+# ---------------------------------------------------------------- 圖片 bundle（繁中貼圖）
+IMG_TEX = ['newspaperSprites_scn', 'flyer_scn', 'gamelogo_scn']
+
+
+def build_images():
+    if not A.imgsrc:
+        sys.exit('圖片 bundle 原檔被遊戲更新改動，請用 --imgsrc 指定一份已套補丁的圖片 bundle')
+    src = {}
+    for o in load(A.imgsrc).objects:
+        if o.type.name == 'Texture2D':
+            t = o.read_typetree()
+            if t['m_Name'] in IMG_TEX:
+                assert t['m_StreamData']['size'] == 0 and t['image data'], t['m_Name']
+                src[t['m_Name']] = t
+    assert set(src) == set(IMG_TEX), list(src)
+    env = load(orig(IMG_BUNDLE))
+    done = []
+    for o in env.objects:
+        if o.type.name != 'Texture2D':
+            continue
+        t = o.read_typetree()
+        s = src.get(t['m_Name'])
+        if s is None:
+            continue
+        for k in ('m_Width', 'm_Height', 'm_TextureFormat', 'm_MipCount', 'm_CompleteImageSize'):
+            assert t.get(k) == s.get(k), (t['m_Name'], k, t.get(k), s.get(k))
+        t['image data'] = s['image data']
+        t['m_StreamData'] = {'offset': 0, 'size': 0, 'path': ''}
+        o.save_typetree(t)
+        done.append(t['m_Name'])
+    assert sorted(done) == sorted(IMG_TEX), done
+    print('  images: inlined', ', '.join(done))
+    # 存成不壓縮，原版內容才會以原始 bytes 出現、能從 aux 照搬
+    return delta_from_bytes(IMG_BUNDLE, env.file.save(packer='none'), AUX[IMG_BUNDLE])
+
+
+BUILDERS = {STR_BUNDLE: build_strings, LOC_BUNDLE: build_locales, IMG_BUNDLE: build_images,
+            CATALOG: build_catalog, DLL: build_dll,
             RES: build_resources, SA2: build_sharedassets2}
 
 
